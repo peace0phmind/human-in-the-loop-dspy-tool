@@ -2,8 +2,9 @@
 Console demo for human-in-the-loop DSPy agents.
 """
 import asyncio
-from input_provider import ConsoleInputProvider
-from agent import create_pizza_agent
+import dspy
+from pizza_agent import OrderPizza
+from human_in_the_loop import human_in_the_loop, console_requester
 
 
 async def main():
@@ -11,27 +12,33 @@ async def main():
     print("🍕 DSPy Human-in-the-Loop Pizza Agent (Console Version)")
     print("=" * 50)
     
-    # Create provider and agent
-    provider = ConsoleInputProvider()
-    agent = create_pizza_agent(provider)
+    lm = dspy.LM('openrouter/google/gemini-2.5-flash')
+    dspy.configure(lm=lm)
+
+    # Create agent for console usage
+    agent = dspy.ReAct(
+        signature=OrderPizza,
+        tools=[human_in_the_loop(console_requester)],
+        max_iters=6
+    )
     
     while True:
-        print("\nWhat would you like to ask the pizza agent?")
+        print("\nWhat is your order?")
         print("(Type 'quit' to exit)")
-        question = input("> ")
+        customer_request = input("> ")
         
-        if question.lower() in ['quit', 'exit', 'q']:
+        if customer_request.lower() in ['quit', 'exit', 'q']:
             print("👋 Goodbye!")
             break
         
-        if not question.strip():
+        if not customer_request.strip():
             continue
         
         try:
-            print(f"\n🤖 Agent is thinking about: '{question}'")
+            print(f"\n🤖 Agent is thinking about: '{customer_request}'")
             print("The agent may ask you questions during its reasoning process...\n")
             
-            result = await agent.aforward(what_would_you_like=question)
+            result = await agent.aforward(customer_request=customer_request)
             
             # Display the structured order
             if hasattr(result, 'order') and result.order:
@@ -41,8 +48,8 @@ async def main():
                     if pizza.get('special_instructions'):
                         print(f"     Special instructions: {pizza['special_instructions']}")
             else:
-                print(f"\n✅ Order: {result.order if hasattr(result, 'order') else 'Could not process order'}")
-            
+                print(f"\n✅ Order: {result.pizzas if hasattr(result, 'pizzas') else 'Could not process order'}")
+
         except Exception as e:
             print(f"\n❌ Error: {e}")
         

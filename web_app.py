@@ -2,25 +2,67 @@
 FastAPI web interface for human-in-the-loop DSPy agents.
 """
 from fastapi import FastAPI, Request
-from fastapi.responses import StreamingResponse, HTMLResponse
+from contextlib import asynccontextmanager
+from fastapi.responses import StreamingResponse, HTMLResponse, Response
 from pydantic import BaseModel
 import asyncio
 import json
+import uuid
+from typing import Dict
+
 import dspy
-from input_provider import SSEInputProvider
-from agent import create_pizza_agent
 
-app = FastAPI(title="DSPy Human-in-the-Loop Demo")
+from pizza_agent import OrderPizza
+from human_in_the_loop import human_in_the_loop, create_queue_requester
 
-# Global provider instance (in production, use dependency injection)
-provider = SSEInputProvider()
+# Background task to broadcast events to all SSE clients
+async def event_broadcaster():
+    """Continuously broadcast events from main queue to all connected clients"""
+    while True:
+        try:
+            # Get event from main queue
+            item = await app.state.request_queue.get()
+            
+            # Broadcast to all connected clients
+            for client_queue in app.state.sse_clients[:]:  # Copy list to avoid modification during iteration
+                try:
+                    client_queue.put_nowait(item)
+                except:
+                    # Remove dead clients
+                    if client_queue in app.state.sse_clients:
+                        app.state.sse_clients.remove(client_queue)
+            
+            # Mark task as done
+            app.state.request_queue.task_done()
+            
+        except Exception:
+            # Continue broadcasting even if there's an error
+            continue
 
-# Create the agent with human input capability
-agent = create_pizza_agent(provider)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: Start the event broadcaster
+    broadcaster_task = asyncio.create_task(event_broadcaster())
+    yield
+    # Shutdown: Cancel the broadcaster
+    broadcaster_task.cancel()
 
-# Track running tasks and their results
-running_tasks = {}
-task_results = {}
+app = FastAPI(title="DSPy Human-in-the-Loop Demo", lifespan=lifespan)
+
+lm = dspy.LM('openrouter/google/gemini-2.5-flash')
+dspy.configure(lm=lm)
+
+# Initialize app state
+app.state.running_tasks = {}
+app.state.pending_requests = {}  # request_id -> {future, question, sent}
+app.state.request_queue = asyncio.Queue()
+app.state.sse_clients = []  # List of queues for each SSE client
+queue_requester = create_queue_requester(app.state.request_queue, app.state.pending_requests)
+app.state.agent = dspy.ReAct(
+    signature=OrderPizza,
+    tools=[human_in_the_loop(queue_requester)],
+    max_iters=6
+)
 
 class AgentRequest(BaseModel):
     question: str
@@ -33,54 +75,75 @@ class HumanResponse(BaseModel):
 async def start_agent(request: AgentRequest):
     """Start an agent task that might require human input"""
     
-    import uuid
+    # Cancel any existing running tasks
+    for existing_task_id, task in list(app.state.running_tasks.items()):
+        if not task.done():
+            task.cancel()
+        app.state.running_tasks.pop(existing_task_id, None)
+    
+    # Clear any pending requests
+    app.state.pending_requests.clear()
+    
     task_id = str(uuid.uuid4())
     
     async def run_agent():
         try:
-            result = await agent.aforward(what_would_you_like=request.question)
-            task_results[task_id] = {"status": "complete", "order": result.order}
+            result = await app.state.agent.aforward(customer_request=request.question)
+            # Push completion to queue for SSE delivery
+            await app.state.request_queue.put({
+                'type': 'task_result',
+                'task_id': task_id,
+                'status': 'complete',
+                'order': result.pizzas
+            })
         except Exception as e:
-            task_results[task_id] = {"status": "error", "error": str(e)}
+            # Push error to queue for SSE delivery
+            await app.state.request_queue.put({
+                'type': 'task_result', 
+                'task_id': task_id,
+                'status': 'error',
+                'error': str(e)
+            })
         finally:
             # Clean up from running tasks
-            running_tasks.pop(task_id, None)
+            app.state.running_tasks.pop(task_id, None)
     
     # Start the agent task in the background
     task = asyncio.create_task(run_agent())
-    running_tasks[task_id] = task
+    app.state.running_tasks[task_id] = task
     
     return {"status": "started", "message": "Agent is running", "task_id": task_id}
 
 @app.get("/events")
 async def event_stream(request: Request):
-    """SSE endpoint that pushes requests for human input and task results to the client"""
+    """SSE endpoint that streams requests from the queue to the client"""
     
-    sent_results = set()
+    # Create a queue for this specific client
+    client_queue = asyncio.Queue()
+    app.state.sse_clients.append(client_queue)
     
     async def generate():
-        while True:
-            # Check if client is still connected
-            if await request.is_disconnected():
-                break
-            
-            # Get any pending human input requests
-            pending = provider.get_pending_requests()
-            for req in pending:
-                # Format as SSE for human input
-                data = json.dumps({"type": "human_input", **req})
-                yield f"data: {data}\n\n"
-            
-            # Check for completed tasks
-            for task_id, result in task_results.items():
-                if task_id not in sent_results:
-                    # Format as SSE for task completion
-                    data = json.dumps({"type": "task_result", "task_id": task_id, **result})
+        try:
+            while True:
+                # Check if client is still connected
+                if await request.is_disconnected():
+                    break
+                
+                try:
+                    # Wait for next item from this client's queue (with timeout for heartbeat)
+                    item = await asyncio.wait_for(client_queue.get(), timeout=1.0)
+                    
+                    # Send the item as SSE
+                    data = json.dumps(item)
                     yield f"data: {data}\n\n"
-                    sent_results.add(task_id)
-            
-            # Small delay to prevent busy waiting
-            await asyncio.sleep(0.5)
+                    
+                except asyncio.TimeoutError:
+                    # Send heartbeat to keep connection alive
+                    yield "data: {}\n\n"
+        finally:
+            # Clean up client queue when disconnected
+            if client_queue in app.state.sse_clients:
+                app.state.sse_clients.remove(client_queue)
     
     return StreamingResponse(
         generate(),
@@ -94,7 +157,12 @@ async def event_stream(request: Request):
 @app.post("/respond")
 async def provide_human_response(response: HumanResponse):
     """Endpoint for submitting human responses"""
-    provider.provide_response(response.request_id, response.response)
+    if response.request_id in app.state.pending_requests:
+        request_obj = app.state.pending_requests[response.request_id]['request']
+        # Clean up the request
+        app.state.pending_requests.pop(response.request_id)
+        # Provide the response
+        request_obj.provide_response(response.response)
     return {"status": "received"}
 
 @app.get("/")
@@ -102,12 +170,27 @@ async def index():
     """Serve the demo UI"""
     return HTMLResponse(content=demo_html)
 
+@app.get("/favicon.ico")
+async def favicon():
+    """Serve pizza favicon"""
+    # Simple SVG pizza favicon
+    pizza_svg = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+        <circle cx="16" cy="16" r="14" fill="#FFD700" stroke="#D2691E" stroke-width="2"/>
+        <circle cx="10" cy="12" r="2" fill="#DC143C"/>
+        <circle cx="22" cy="11" r="2" fill="#DC143C"/>
+        <circle cx="12" cy="20" r="2" fill="#32CD32"/>
+        <circle cx="20" cy="22" r="2" fill="#DC143C"/>
+        <circle cx="16" cy="16" r="1.5" fill="#32CD32"/>
+    </svg>"""
+    return Response(content=pizza_svg, media_type="image/svg+xml")
+
 # Demo HTML interface
 demo_html = """
 <!DOCTYPE html>
 <html>
 <head>
     <title>DSPy Human-in-the-Loop Demo</title>
+    <link rel="icon" href="/favicon.ico" type="image/svg+xml">
     <style>
         body { 
             font-family: Arial, sans-serif; 
