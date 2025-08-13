@@ -2,7 +2,7 @@
 
 A demonstration of how to integrate human feedback and decision-making into automated [DSPy](https://github.com/stanfordnlp/dspy) ReAct agent workflows. This system allows AI agents to pause execution and request human input when they need clarification, approval, or additional context.
 
-## <U Demo: Pizza Ordering Agent
+## Demo: Pizza Ordering Agent
 
 The included demo features a pizza ordering agent that:
 - Takes natural language requests like "I want two large pizzas"
@@ -10,7 +10,7 @@ The included demo features a pizza ordering agent that:
 - Builds structured order data through human interaction
 - Works in both console and web interfaces
 
-## ( Features
+## Features
 
 - **Seamless Integration**: Drop-in DSPy Tool that agents can use naturally
 - **Multiple Interfaces**: Console (terminal) and web (browser) implementations
@@ -19,7 +19,7 @@ The included demo features a pizza ordering agent that:
 - **Type Safety**: Full TypeScript-style typing with TypedDict
 - **Production Ready**: Clean architecture with proper error handling
 
-## <× Architecture
+## Architecture
 
 ### Core Components
 
@@ -47,12 +47,12 @@ agent = dspy.ReAct(
 
 ### Request Flow
 
-1. **Agent asks question** ’ Creates `HumanInputRequest`
-2. **Requester handles transport** ’ Console input() or web queue
-3. **Human provides response** ’ Through terminal or browser
-4. **Response delivered back** ’ Agent continues execution
+1. **Agent asks question** - Creates `HumanInputRequest`
+2. **Requester handles transport** - Console input() or web queue
+3. **Human provides response** - Through terminal or browser
+4. **Response delivered back** - Agent continues execution
 
-## =€ Quick Start
+## Quick Start
 
 ### Prerequisites
 
@@ -85,7 +85,7 @@ lm = dspy.LM('openrouter/google/gemini-2.5-flash')
 # lm = dspy.LM('anthropic/claude-3-sonnet-20240229')
 ```
 
-## <® Running the Demos
+## Running the Demos
 
 ### Console Demo
 
@@ -97,17 +97,17 @@ uv run python console_app.py
 
 Example interaction:
 ```
-<U DSPy Human-in-the-Loop Pizza Agent (Console Version)
+DSPy Human-in-the-Loop Pizza Agent (Console Version)
 
 What is your order?
 > I want a large pizza
 
-> Agent is thinking about: 'I want a large pizza'
+Agent is thinking about: 'I want a large pizza'
 
-> What toppings would you like on your large pizza?
+What toppings would you like on your large pizza?
 > pepperoni and mushrooms
 
- Your order:
+Your order:
   1. large pizza with pepperoni, mushrooms
 ```
 
@@ -122,13 +122,13 @@ uv run python web_app.py
 Then open http://localhost:8000 in your browser.
 
 Features:
-- <U Pizza favicon
+- Pizza favicon
 - Real-time question/response flow
 - Multiple browser tabs supported
 - Mobile-friendly responsive design
 - Activity logging
 
-## =' Integration Guide
+## Integration Guide
 
 ### Basic Usage
 
@@ -186,7 +186,7 @@ agent = dspy.ReAct(
 )
 ```
 
-## >ê Testing
+## Testing
 
 The system includes both unit-testable components and integration demos:
 
@@ -199,7 +199,7 @@ uv run python web_app.py
 # Then visit http://localhost:8000
 ```
 
-## =¦ Production Considerations
+## Production Considerations
 
 ### Scalability
 
@@ -218,7 +218,7 @@ uv run python web_app.py
 - **Logging**: Log all human interactions for audit
 - **Alerting**: Monitor for stuck requests
 
-## =Ö Technical Details
+## Technical Details
 
 ### Async Coordination
 
@@ -253,7 +253,7 @@ class HumanInputRequest:
 - **Validation**: Type-safe request/response handling
 - **Graceful Degradation**: Fallback behaviors for edge cases
 
-## > Contributing
+## Contributing
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
@@ -261,17 +261,17 @@ class HumanInputRequest:
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
-## =Ä License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## =O Acknowledgments
+## Acknowledgments
 
 - [DSPy](https://github.com/stanfordnlp/dspy) for the excellent framework
 - [FastAPI](https://fastapi.tiangolo.com/) for the web infrastructure  
 - The human-in-the-loop pattern inspiration from interactive ML systems
 
-## =Ú Related Work
+## Related Work
 
 - [DSPy Documentation](https://dspy-docs.vercel.app/)
 - [Human-in-the-Loop Machine Learning](https://www.manning.com/books/human-in-the-loop-machine-learning)
