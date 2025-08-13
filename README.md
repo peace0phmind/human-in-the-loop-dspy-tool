@@ -222,21 +222,18 @@ uv run python web_app.py
 
 ### Async Coordination
 
-The system uses `asyncio.Event` for coordination between agent execution and human response:
+The system uses `asyncio.Future` for coordination between agent execution and human response:
 
 ```python
 class HumanInputRequest:
     def __init__(self, question: str):
-        self._response_event = asyncio.Event()
-        self._response_value = None
+        self._response_future = asyncio.Future()
     
     async def wait_for_response(self) -> str:
-        await self._response_event.wait()  # Blocks until response
-        return self._response_value
+        return await self._response_future  # Blocks until response
     
     def provide_response(self, response: str):
-        self._response_value = response
-        self._response_event.set()  # Unblocks waiting agent
+        self._response_future.set_result(response)  # Unblocks waiting agent
 ```
 
 ### Web Architecture

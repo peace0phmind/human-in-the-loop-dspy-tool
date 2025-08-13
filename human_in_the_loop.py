@@ -24,18 +24,15 @@ class HumanInputRequest:
     
     def __init__(self, question: str):
         self.question = question
-        self._response_event = asyncio.Event()
-        self._response_value = None
+        self._response_future = asyncio.Future()
     
     async def wait_for_response(self) -> str:
         """Wait for the response to be provided"""
-        await self._response_event.wait()
-        return self._response_value
+        return await self._response_future
     
     def provide_response(self, response: str):
         """Provide the response and notify waiters"""
-        self._response_value = response
-        self._response_event.set()
+        self._response_future.set_result(response)
 
 
 Requester = Callable[[HumanInputRequest], Awaitable[None]]
