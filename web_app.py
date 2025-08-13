@@ -162,7 +162,7 @@ async def provide_human_response(response: HumanResponse):
         # Clean up the request
         app.state.pending_requests.pop(response.request_id)
         # Provide the response
-        request_obj.provide_response(response.response)
+        request_obj.set_response(response.response)
     return {"status": "received"}
 
 @app.get("/")

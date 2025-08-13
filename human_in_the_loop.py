@@ -26,11 +26,11 @@ class HumanInputRequest:
         self.question = question
         self._response_future = asyncio.Future()
     
-    async def wait_for_response(self) -> str:
+    async def response(self) -> str:
         """Wait for the response to be provided"""
         return await self._response_future
     
-    def provide_response(self, response: str):
+    def set_response(self, response: str):
         """Provide the response and notify waiters"""
         self._response_future.set_result(response)
 
@@ -55,7 +55,7 @@ def human_in_the_loop(requester: Requester) -> dspy.Tool:
         await requester(request)
         
         # Wait for response (resolved by requester or external system)
-        response = await request.wait_for_response()
+        response = await request.response()
         return response
     
     return dspy.Tool(ask_human)
@@ -65,7 +65,7 @@ def human_in_the_loop(requester: Requester) -> dspy.Tool:
 async def console_requester(request: HumanInputRequest):
     """Console requester that gets input via stdin and resolves immediately"""
     response = input(f"\n🤔 {request.question}\n> ")
-    request.provide_response(response)
+    request.set_response(response)
 
 
 # Queue requester: push to queue for async delivery

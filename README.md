@@ -160,12 +160,12 @@ async def slack_requester(request: HumanInputRequest):
     await slack_client.send_message(request.question)
     
     # Set up webhook handler to call:
-    # request.provide_response(user_response)
+    # request.set_response(user_response)
 
 async def email_requester(request: HumanInputRequest):
     # Send email with question
     # Set up email parser to call:
-    # request.provide_response(user_response)
+    # request.set_response(user_response)
 ```
 
 ### Custom Signatures
@@ -229,10 +229,10 @@ class HumanInputRequest:
     def __init__(self, question: str):
         self._response_future = asyncio.Future()
     
-    async def wait_for_response(self) -> str:
+    async def response(self) -> str:
         return await self._response_future  # Blocks until response
     
-    def provide_response(self, response: str):
+    def set_response(self, response: str):
         self._response_future.set_result(response)  # Unblocks waiting agent
 ```
 
