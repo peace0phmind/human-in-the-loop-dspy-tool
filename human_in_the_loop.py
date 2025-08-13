@@ -34,7 +34,9 @@ class HumanInputRequest:
         """Provide the response and notify waiters"""
         self._response_future.set_result(response)
 
-
+# A requester is an async function that takes a HumanInputRequest
+# and handles the outbound request to humans, allowing them to provide a response.
+# It should resolve the request by calling request.set_response(response).
 Requester = Callable[[HumanInputRequest], Awaitable[None]]
 
 
@@ -64,7 +66,7 @@ def human_in_the_loop(requester: Requester) -> dspy.Tool:
 # Console requester: ask via stdin and resolve immediately
 async def console_requester(request: HumanInputRequest):
     """Console requester that gets input via stdin and resolves immediately"""
-    response = input(f"\n🤔 {request.question}\n> ")
+    response = input(f"\n{request.question}\n> ")
     request.set_response(response)
 
 
@@ -73,7 +75,7 @@ def create_queue_requester(request_queue: asyncio.Queue, pending_requests: dict)
     """Create a queue requester that pushes requests to an asyncio.Queue for async delivery"""
     
     async def queue_requester(request: HumanInputRequest):
-        """Queue requester that pushes request to queue for async delivery"""
+        # Generate a unique ID for this request
         request_id = str(uuid.uuid4())
         
         # Store in pending requests for response resolution
@@ -82,12 +84,14 @@ def create_queue_requester(request_queue: asyncio.Queue, pending_requests: dict)
             'question': request.question,
             'sent': False
         }
-        
+
+        # Push to the request queue         
         await request_queue.put({
             'type': 'human_input',
             'id': request_id,
             'question': request.question
         })
+        
         # Mark as sent to avoid duplicate sends
         pending_requests[request_id]['sent'] = True
     
