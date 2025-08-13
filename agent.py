@@ -1,6 +1,8 @@
 """
 DSPy ReAct agent with human-in-the-loop capabilities.
 """
+from typing_extensions import TypedDict
+
 import dspy
 from input_provider import InputProvider
 
@@ -27,52 +29,18 @@ def create_human_input_tool(provider: InputProvider):
     return dspy.Tool(ask_human)
 
 
-def create_simple_math_tool():
-    """Create a simple math calculator tool"""
-    
-    def calculate(expression: str) -> str:
-        """Calculate a mathematical expression.
-        
-        Args:
-            expression: A mathematical expression to evaluate (e.g., "2 + 3 * 4")
-            
-        Returns:
-            The result of the calculation as a string
-        """
-        try:
-            # Basic safety check - only allow safe characters
-            allowed_chars = set('0123456789+-*/()%. ')
-            if not all(c in allowed_chars for c in expression):
-                return "Error: Invalid characters in expression"
-            
-            result = eval(expression)
-            return str(result)
-        except Exception as e:
-            return f"Error: {e}"
-    
-    return dspy.Tool(calculate)
 
-
-def create_agent(provider: InputProvider):
-    """Create a ReAct agent with human input capabilities"""
-    
-    # Create tools
-    human_tool = create_human_input_tool(provider)
-    math_tool = create_simple_math_tool()
-    
-    # Set up agent with a signature that requires reasoning
-    agent = dspy.ReAct(signature="question -> answer", tools=[human_tool, math_tool])
-    
-    return agent
-
-
+class PizzaOrder(TypedDict):
+    """TypedDict for pizza order details"""
+    size: str
+    toppings: list[str]
+    special_instructions: str | None
 
 
 class PizzaOrderAgent(dspy.Signature):
     """An agent that helps order pizza by asking the human for preferences"""
-    question = dspy.InputField(desc="A question about what pizza to order")
-    answer = dspy.OutputField(desc="A complete pizza order recommendation based on human input")
-
+    what_would_you_like = dspy.InputField()
+    order: list[PizzaOrder] = dspy.OutputField()
 
 def create_pizza_agent(provider: InputProvider):
     """Create a pizza ordering agent that needs human input"""

@@ -9,7 +9,7 @@ import uuid
 class InputProvider(Protocol):
     """Protocol for different human input mechanisms"""
     
-    async def get_input(self, question: str, metadata: dict = None) -> str:
+    async def get_input(self, question: str, metadata: dict | None = None) -> str:
         """Request input from a human"""
         ...
     
@@ -21,7 +21,7 @@ class InputProvider(Protocol):
 class ConsoleInputProvider:
     """Simple console-based input provider"""
     
-    async def get_input(self, question: str, metadata: dict = None) -> str:
+    async def get_input(self, question: str, metadata: dict | None = None) -> str:
         # For async compatibility, but actually synchronous
         return input(f"\n🤔 {question}\n> ")
     
@@ -36,7 +36,7 @@ class SSEInputProvider:
     def __init__(self):
         self.pending_requests: Dict[str, dict] = {}
     
-    async def get_input(self, question: str, metadata: dict = None) -> str:
+    async def get_input(self, question: str, metadata: dict | None = None) -> str:
         request_id = str(uuid.uuid4())
         future = asyncio.Future()
         

@@ -38,8 +38,8 @@ async def start_agent(request: AgentRequest):
     
     async def run_agent():
         try:
-            result = await agent.aforward(question=request.question)
-            task_results[task_id] = {"status": "complete", "answer": result.answer}
+            result = await agent.aforward(what_would_you_like=request.question)
+            task_results[task_id] = {"status": "complete", "order": result.order}
         except Exception as e:
             task_results[task_id] = {"status": "error", "error": str(e)}
         finally:
@@ -300,8 +300,8 @@ demo_html = """
                     showRequest(data);
                 } else if (data.type === 'task_result') {
                     if (data.status === 'complete') {
-                        log(`🎉 Agent completed! Final answer: "${data.answer}"`);
-                        showFinalAnswer(data.answer);
+                        log(`🎉 Agent completed! Order ready.`);
+                        showFinalOrder(data.order);
                         // New Order workflow already set up when agent started
                     } else if (data.status === 'error') {
                         log(`❌ Agent error: ${data.error}`);
@@ -380,19 +380,33 @@ demo_html = """
             .catch(error => log(`❌ Error sending response: ${error}`));
         }
         
-        function showFinalAnswer(answer) {
+        function showFinalOrder(order) {
             const div = document.createElement('div');
             div.className = 'final-answer';
-            div.innerHTML = `
-                <h3>🎉 Final Answer</h3>
-                <p>${answer}</p>
-            `;
+            
+            let orderHtml = '<h3>🎉 Your Order</h3>';
+            
+            if (order && Array.isArray(order) && order.length > 0) {
+                orderHtml += '<ul>';
+                order.forEach((pizza, index) => {
+                    orderHtml += `<li><strong>${pizza.size}</strong> pizza with <em>${pizza.toppings.join(', ')}</em>`;
+                    if (pizza.special_instructions) {
+                        orderHtml += `<br><small>Special instructions: ${pizza.special_instructions}</small>`;
+                    }
+                    orderHtml += '</li>';
+                });
+                orderHtml += '</ul>';
+            } else {
+                orderHtml += '<p>Order details not available</p>';
+            }
+            
+            div.innerHTML = orderHtml;
             
             // Insert at the end, after all requests
             const requestsDiv = document.getElementById('requests');
             requestsDiv.appendChild(div);
             
-            // Scroll to the final answer
+            // Scroll to the final order
             div.scrollIntoView({ behavior: 'smooth' });
         }
         

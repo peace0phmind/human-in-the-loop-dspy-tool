@@ -2,7 +2,6 @@
 Console demo for human-in-the-loop DSPy agents.
 """
 import asyncio
-import dspy
 from input_provider import ConsoleInputProvider
 from agent import create_pizza_agent
 
@@ -32,9 +31,17 @@ async def main():
             print(f"\n🤖 Agent is thinking about: '{question}'")
             print("The agent may ask you questions during its reasoning process...\n")
             
-            result = await agent.aforward(question=question)
+            result = await agent.aforward(what_would_you_like=question)
             
-            print(f"\n✅ Final Answer: {result.answer}")
+            # Display the structured order
+            if hasattr(result, 'order') and result.order:
+                print(f"\n✅ Your order:")
+                for i, pizza in enumerate(result.order, 1):
+                    print(f"  {i}. {pizza['size']} pizza with {', '.join(pizza['toppings'])}")
+                    if pizza.get('special_instructions'):
+                        print(f"     Special instructions: {pizza['special_instructions']}")
+            else:
+                print(f"\n✅ Order: {result.order if hasattr(result, 'order') else 'Could not process order'}")
             
         except Exception as e:
             print(f"\n❌ Error: {e}")
