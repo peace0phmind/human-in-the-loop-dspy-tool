@@ -2,6 +2,9 @@
 
 A demonstration of how to integrate human feedback and decision-making into automated [DSPy](https://github.com/stanfordnlp/dspy) ReAct agent workflows. This system allows AI agents to pause execution and request human input when they need clarification, approval, or additional context.
 
+It might be simplest to start with the [blog post](https://joelgrus.com/2025/08/13/vibe-coding-7-human-in-the-loop-as-a-dspytool/).
+
+
 ## Demo: Pizza Ordering Agent
 
 The included demo features a pizza ordering agent that:
