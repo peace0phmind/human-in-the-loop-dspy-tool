@@ -71,28 +71,37 @@ async def console_requester(request: HumanInputRequest):
 
 
 # Queue requester: push to queue for async delivery
-def create_queue_requester(request_queue: asyncio.Queue, pending_requests: dict):
-    """Create a queue requester that pushes requests to an asyncio.Queue for async delivery"""
+def create_queue_requester(request_queue: asyncio.Queue, pending_requests: dict, session_id: str):
+    """Create a queue requester that pushes requests to an asyncio.Queue for async delivery.
+
+    Requests and events are tagged with a client_id so that multiple browser windows
+    do not interfere with each other's streams.
+    """
     
+    # Ensure nested map exists for this session
+    if session_id not in pending_requests:
+        pending_requests[session_id] = {}
+
     async def queue_requester(request: HumanInputRequest):
         # Generate a unique ID for this request
         request_id = str(uuid.uuid4())
         
-        # Store in pending requests for response resolution
-        pending_requests[request_id] = {
+        # Store in pending requests for response resolution under this session
+        pending_requests[session_id][request_id] = {
             'request': request,
             'question': request.question,
             'sent': False
         }
 
-        # Push to the request queue         
+        # Push to the request queue tagged with session_id
         await request_queue.put({
             'type': 'human_input',
+            'session_id': session_id,
             'id': request_id,
             'question': request.question
         })
         
         # Mark as sent to avoid duplicate sends
-        pending_requests[request_id]['sent'] = True
+        pending_requests[session_id][request_id]['sent'] = True
     
     return queue_requester

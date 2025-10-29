@@ -15,22 +15,28 @@ import dspy
 from pizza_agent import OrderPizza
 from human_in_the_loop import human_in_the_loop, create_queue_requester
 
-# Background task to broadcast events to all SSE clients
+# Background task to broadcast events to the correct SSE sessions
 async def event_broadcaster():
-    """Continuously broadcast events from main queue to all connected clients"""
+    """Continuously broadcast events from main queue to connected clients by session_id"""
     while True:
         try:
             # Get event from main queue
             item = await app.state.request_queue.get()
             
-            # Broadcast to all connected clients
-            for client_queue in app.state.sse_clients[:]:  # Copy list to avoid modification during iteration
-                try:
-                    client_queue.put_nowait(item)
-                except:
-                    # Remove dead clients
-                    if client_queue in app.state.sse_clients:
-                        app.state.sse_clients.remove(client_queue)
+            # Determine target session(s)
+            target_session_id = item.get('session_id') if isinstance(item, dict) else None
+            if target_session_id and target_session_id in app.state.sse_clients:
+                # Broadcast only to queues registered for this session
+                for client_queue in app.state.sse_clients[target_session_id][:]:
+                    try:
+                        client_queue.put_nowait(item)
+                    except:
+                        # Remove dead queues
+                        if client_queue in app.state.sse_clients[target_session_id]:
+                            app.state.sse_clients[target_session_id].remove(client_queue)
+            else:
+                # No session_id provided; do nothing (safety)
+                pass
             
             # Mark task as done
             app.state.request_queue.task_done()
@@ -49,50 +55,64 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="DSPy Human-in-the-Loop Demo", lifespan=lifespan)
 
-lm = dspy.LM('openrouter/google/gemini-2.5-flash')
+# lm = dspy.LM('openai/GS-Qwen3-30B', api_key="py123", base_url="https://ai.b.0fpy.com/v1")
+lm = dspy.LM('openai/anthropic-glm-4.5', api_key="py123", base_url="https://ai.b.0fpy.com/v1")
+
 dspy.configure(lm=lm)
 
-# Initialize app state
-app.state.running_tasks = {}
-app.state.pending_requests = {}  # request_id -> {future, question, sent}
+# Initialize app state (scoped by session_id)
+app.state.running_tasks = {}  # session_id -> { task_id -> asyncio.Task }
+app.state.pending_requests = {}  # session_id -> { request_id -> {request, question, sent} }
 app.state.request_queue = asyncio.Queue()
-app.state.sse_clients = []  # List of queues for each SSE client
-queue_requester = create_queue_requester(app.state.request_queue, app.state.pending_requests)
-app.state.agent = dspy.ReAct(
-    signature=OrderPizza,
-    tools=[human_in_the_loop(queue_requester)],
-    max_iters=6
-)
+app.state.sse_clients = {}  # session_id -> List[asyncio.Queue]
 
 class AgentRequest(BaseModel):
     question: str
+    session_id: str
 
 class HumanResponse(BaseModel):
     request_id: str
+    session_id: str
     response: str
 
 @app.post("/agent/start")
 async def start_agent(request: AgentRequest):
     """Start an agent task that might require human input"""
-    
-    # Cancel any existing running tasks
-    for existing_task_id, task in list(app.state.running_tasks.items()):
+    session_id = request.session_id
+
+    # Ensure session maps exist
+    if session_id not in app.state.running_tasks:
+        app.state.running_tasks[session_id] = {}
+    if session_id not in app.state.pending_requests:
+        app.state.pending_requests[session_id] = {}
+
+    # Cancel any existing running tasks for this session only
+    for existing_task_id, task in list(app.state.running_tasks[session_id].items()):
         if not task.done():
             task.cancel()
-        app.state.running_tasks.pop(existing_task_id, None)
-    
-    # Clear any pending requests
-    app.state.pending_requests.clear()
+        app.state.running_tasks[session_id].pop(existing_task_id, None)
+
+    # Clear any pending requests for this session
+    app.state.pending_requests[session_id].clear()
     
     task_id = str(uuid.uuid4())
     
+    # Create a per-session requester and agent
+    queue_requester = create_queue_requester(app.state.request_queue, app.state.pending_requests, session_id)
+    agent = dspy.ReAct(
+        signature=OrderPizza,
+        tools=[human_in_the_loop(queue_requester)],
+        max_iters=6
+    )
+
     async def run_agent():
         try:
-            result = await app.state.agent.aforward(customer_request=request.question)
+            result = await agent.aforward(customer_request=request.question)
             # Push completion to queue for SSE delivery
             await app.state.request_queue.put({
                 'type': 'task_result',
                 'task_id': task_id,
+                'session_id': session_id,
                 'status': 'complete',
                 'order': result.pizzas
             })
@@ -101,29 +121,36 @@ async def start_agent(request: AgentRequest):
             await app.state.request_queue.put({
                 'type': 'task_result', 
                 'task_id': task_id,
+                'session_id': session_id,
                 'status': 'error',
                 'error': str(e)
             })
         finally:
             # Clean up from running tasks
-            app.state.running_tasks.pop(task_id, None)
+            app.state.running_tasks[session_id].pop(task_id, None)
     
     # Start the agent task in the background
     task = asyncio.create_task(run_agent())
-    app.state.running_tasks[task_id] = task
+    app.state.running_tasks[session_id][task_id] = task
     
     return {"status": "started", "message": "Agent is running", "task_id": task_id}
 
 @app.get("/events")
 async def event_stream(request: Request):
     """SSE endpoint that streams requests from the queue to the client"""
+    # Accept optional session_id; if missing, create a new session
+    session_id = request.query_params.get('session_id')
+    if not session_id:
+        session_id = str(uuid.uuid4())
     
-    # Create a queue for this specific client
+    # Create a queue for this specific session
     client_queue = asyncio.Queue()
-    app.state.sse_clients.append(client_queue)
+    app.state.sse_clients.setdefault(session_id, []).append(client_queue)
     
     async def generate():
         try:
+            # Emit session info as the first event
+            yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n"
             while True:
                 # Check if client is still connected
                 if await request.is_disconnected():
@@ -142,8 +169,8 @@ async def event_stream(request: Request):
                     yield "data: {}\n\n"
         finally:
             # Clean up client queue when disconnected
-            if client_queue in app.state.sse_clients:
-                app.state.sse_clients.remove(client_queue)
+            if session_id in app.state.sse_clients and client_queue in app.state.sse_clients[session_id]:
+                app.state.sse_clients[session_id].remove(client_queue)
     
     return StreamingResponse(
         generate(),
@@ -157,10 +184,11 @@ async def event_stream(request: Request):
 @app.post("/respond")
 async def provide_human_response(response: HumanResponse):
     """Endpoint for submitting human responses"""
-    if response.request_id in app.state.pending_requests:
-        request_obj = app.state.pending_requests[response.request_id]['request']
+    session_id = response.session_id
+    if session_id in app.state.pending_requests and response.request_id in app.state.pending_requests[session_id]:
+        request_obj = app.state.pending_requests[session_id][response.request_id]['request']
         # Clean up the request
-        app.state.pending_requests.pop(response.request_id)
+        app.state.pending_requests[session_id].pop(response.request_id)
         # Provide the response
         request_obj.set_response(response.response)
     return {"status": "received"}
@@ -294,6 +322,8 @@ demo_html = """
     
     <script>
         let eventSource = null;
+        // Per-window session id; use sessionStorage so each tab/window is isolated
+        let sessionId = sessionStorage.getItem('pizza_agent_session_id') || null;
         
         function log(message) {
             const logDiv = document.getElementById('log');
@@ -325,7 +355,7 @@ demo_html = """
             fetch('/agent/start', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({question: question})
+                body: JSON.stringify({question: question, session_id: sessionId})
             })
             .then(r => r.json())
             .then(data => {
@@ -373,11 +403,19 @@ demo_html = """
         }
         
         function startSSE() {
-            eventSource = new EventSource('/events');
+            const url = sessionId ? `/events?session_id=${encodeURIComponent(sessionId)}` : '/events';
+            eventSource = new EventSource(url);
             
             eventSource.onmessage = function(event) {
                 const data = JSON.parse(event.data);
                 
+                if (data.type === 'session' && data.session_id) {
+                    sessionId = data.session_id;
+                    sessionStorage.setItem('pizza_agent_session_id', sessionId);
+                    log(`🆔 Session established: ${sessionId}`);
+                    return;
+                }
+
                 if (data.type === 'human_input') {
                     log(`🤔 Agent needs input: "${data.question}"`);
                     showRequest(data);
@@ -435,6 +473,7 @@ demo_html = """
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
                     request_id: requestId,
+                    session_id: sessionId,
                     response: response
                 })
             })

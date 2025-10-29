@@ -12,7 +12,7 @@ async def main():
     print("DSPy Human-in-the-Loop Pizza Agent (Console Version)")
     print("=" * 50)
     
-    lm = dspy.LM('openrouter/google/gemini-2.5-flash')
+    lm = dspy.LM('openai/GS-Qwen3-30B', api_key="py123", base_url="https://ai.b.0fpy.com/v1")
     dspy.configure(lm=lm)
 
     # Create agent for console usage
